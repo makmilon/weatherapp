@@ -24,7 +24,7 @@ class WeatherRepository @Inject constructor(
         return dao.getCurrentLocationWeather()
             .onStart { Log.d("WeatherRepository", "Starting to observe current location weather from DB") }
             .map { entity ->
-                entity?.let { 
+                entity?.let {
                     Log.d("WeatherRepository", "Found weather data in DB for location: ${entity.locationName}, isCurrent: ${entity.isCurrent}")
                     gson.fromJson(it.weatherData, WeatherResponse::class.java)
                 }.also { response ->
@@ -40,20 +40,20 @@ class WeatherRepository @Inject constructor(
             Log.d("WeatherRepository", "Fetching weather data for location: $location (isCurrentLocation: $isCurrentLocation)")
             val response = api.getWeatherForecast(API_KEY, location)
             Log.d("WeatherRepository", "Successfully fetched weather data for: ${response.location.name}")
-            
+
             // If this is current location, clear any previous current location data
             if (isCurrentLocation) {
                 Log.d("WeatherRepository", "Clearing previous current location data")
                 dao.clearCurrentLocationWeather()
             }
-            
+
             // Store in local database
             insertWeather(response, isCurrentLocation)
-            
+
             // Verify the data was properly stored
             val verifyEntity = dao.getWeatherByLocation(response.location.name)
             Log.d("WeatherRepository", "Verification - Found in DB: ${verifyEntity != null}, isCurrent: ${verifyEntity?.isCurrent}")
-            
+
             return response
         } catch (e: Exception) {
             Log.e("WeatherRepository", "Error fetching weather data", e)
@@ -96,23 +96,27 @@ class WeatherRepository @Inject constructor(
     }
 
     suspend fun getLocationNameFromCoordinates(lat: Double, lon: Double): String {
-        try {
+        return try {
             Log.d("WeatherRepository", "Getting location name for coordinates: $lat, $lon")
-            // Search for location using coordinates
-            val searchQuery = "$lat,$lon"
-            val locations = api.searchLocations(API_KEY, searchQuery)
-            
-            if (locations.isNotEmpty()) {
-                val location = locations[0] // Get the first (most relevant) result
-                Log.d("WeatherRepository", "Found location name: ${location.name}")
-                return location.name
-            } else {
-                Log.w("WeatherRepository", "No location found for coordinates: $lat, $lon")
-                return "$lat,$lon" // Fallback to coordinates if no location found
-            }
+            val response = api.getCurrentWeatherByCoordinates(API_KEY, "$lat,$lon")
+            val locationName = response.location.name
+            Log.d("WeatherRepository", "Found location name: $locationName")
+            locationName
         } catch (e: Exception) {
             Log.e("WeatherRepository", "Error getting location name", e)
-            return "$lat,$lon" // Fallback to coordinates on error
+            "$lat,$lon" // fallback
+        }
+    }
+
+
+    suspend fun clearCurrentLocationWeather() {
+        try {
+            Log.d("WeatherRepository", "Clearing previous current location weather data")
+            dao.clearCurrentLocationWeather()
+            Log.d("WeatherRepository", "Successfully cleared current location weather data")
+        } catch (e: Exception) {
+            Log.e("WeatherRepository", "Error clearing current location weather data", e)
+            throw e
         }
     }
 
@@ -121,4 +125,4 @@ class WeatherRepository @Inject constructor(
         private const val API_KEY = "4c81b8dabe98476389290514240809" // Get your key from: https://www.weatherapi.com/
         private const val CACHE_DURATION = 60 * 60 * 1000L // 1 hour in milliseconds
     }
-} 
+}
