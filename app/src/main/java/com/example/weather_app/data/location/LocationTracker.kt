@@ -66,7 +66,7 @@ class LocationTracker @Inject constructor(
         ) == PackageManager.PERMISSION_GRANTED
     }
 
-    suspend fun getLastKnownLocation(): Location? {
+    open suspend fun getLastKnownLocation(): Location? {
         return if (hasLocationPermission()) {
             try {
                 Tasks.await(fusedLocationClient.lastLocation)

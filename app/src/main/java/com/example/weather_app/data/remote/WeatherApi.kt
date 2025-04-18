@@ -6,6 +6,7 @@ import retrofit2.http.GET
 import retrofit2.http.Query
 
 interface WeatherApi {
+
     @GET("v1/forecast.json")
     suspend fun getWeatherForecast(
         @Query("key") apiKey: String,
@@ -20,7 +21,13 @@ interface WeatherApi {
         @Query("q") query: String
     ): List<LocationSuggestion>
 
+    @GET("v1/current.json")
+    suspend fun getCurrentWeatherByCoordinates(
+        @Query("key") apiKey: String,
+        @Query("q") query: String
+    ): WeatherResponse
+
     companion object {
         const val BASE_URL = "https://api.weatherapi.com/"
     }
-} 
+}

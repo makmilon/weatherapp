@@ -18,6 +18,11 @@ import com.example.weather_app.ui.weather.WeatherViewModel
 import dagger.hilt.android.AndroidEntryPoint
 import android.content.pm.PackageManager
 import com.example.weather_app.ui.theme.WeatherAppTheme
+import android.location.LocationManager
+import android.content.Context
+import android.app.AlertDialog
+import android.provider.Settings
+import android.content.Intent
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
@@ -43,16 +48,50 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun requestLocationPermissions() {
-        if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
-            // Permission already granted, start getting weather
+        when {
+            // Check if we have both permissions
+            checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED &&
+            checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED -> {
+                // Both permissions are granted, check if location is enabled
+                checkLocationServicesAndProceed()
+            }
+            else -> {
+                // Request permissions
+                locationPermissionRequest.launch(arrayOf(
+                    Manifest.permission.ACCESS_FINE_LOCATION,
+                    Manifest.permission.ACCESS_COARSE_LOCATION
+                ))
+            }
+        }
+    }
+
+    private fun checkLocationServicesAndProceed() {
+        val locationManager = getSystemService(Context.LOCATION_SERVICE) as LocationManager
+        val isGpsEnabled = locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)
+        val isNetworkEnabled = locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)
+
+        if (isGpsEnabled || isNetworkEnabled) {
+            // Location services are enabled, proceed with getting weather
             viewModel.onLocationPermissionGranted()
         } else {
-            // Request permission
-            locationPermissionRequest.launch(arrayOf(
-                Manifest.permission.ACCESS_FINE_LOCATION,
-                Manifest.permission.ACCESS_COARSE_LOCATION
-            ))
+            // Show location settings dialog
+            showLocationSettingsDialog()
         }
+    }
+
+    private fun showLocationSettingsDialog() {
+        val builder = AlertDialog.Builder(this)
+        builder.setTitle("Location Services Required")
+            .setMessage("Please enable location services to get weather for your current location")
+            .setPositiveButton("Open Settings") { _, _ ->
+                // Open location settings
+                startActivity(Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS))
+            }
+            .setNegativeButton("Cancel") { dialog, _ ->
+                dialog.dismiss()
+                viewModel.onLocationPermissionDenied()
+            }
+            .show()
     }
 
     private val locationPermissionRequest = registerForActivityResult(
@@ -60,12 +99,12 @@ class MainActivity : ComponentActivity() {
     ) { permissions ->
         when {
             permissions[Manifest.permission.ACCESS_FINE_LOCATION] == true -> {
-                // Precise location granted, start getting weather
-                viewModel.onLocationPermissionGranted()
+                // Precise location granted, check location services
+                checkLocationServicesAndProceed()
             }
             permissions[Manifest.permission.ACCESS_COARSE_LOCATION] == true -> {
-                // Approximate location granted, start getting weather
-                viewModel.onLocationPermissionGranted()
+                // Approximate location granted, check location services
+                checkLocationServicesAndProceed()
             }
             else -> {
                 // No location access granted

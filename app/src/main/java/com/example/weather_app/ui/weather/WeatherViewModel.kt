@@ -4,7 +4,7 @@ import android.location.Location
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.weather_app.data.location.LocationTracker
+import com.example.weather_app.data.location.ILocationTracker
 import com.example.weather_app.data.model.LocationSuggestion
 import com.example.weather_app.data.model.WeatherResponse
 import com.example.weather_app.data.repository.WeatherRepository
@@ -16,7 +16,7 @@ import javax.inject.Inject
 @HiltViewModel
 class WeatherViewModel @Inject constructor(
     private val repository: WeatherRepository,
-    private val locationTracker: LocationTracker
+    private val locationTracker: ILocationTracker
 ) : ViewModel() {
 
     private val _searchQuery = MutableStateFlow("")
@@ -39,6 +39,7 @@ class WeatherViewModel @Inject constructor(
 
     init {
         Log.d("WeatherViewModel", "Initializing WeatherViewModel")
+        // Start observing database for any existing weather data
         observeCurrentLocationWeather()
     }
 
@@ -46,14 +47,15 @@ class WeatherViewModel @Inject constructor(
         Log.d("WeatherViewModel", "Location permission granted, fetching initial location")
         viewModelScope.launch {
             try {
+                _isLoading.value = true
                 val lastLocation = locationTracker.getLastKnownLocation()
                 if (lastLocation != null) {
                     Log.d("WeatherViewModel", "Initial location available: ${lastLocation.latitude}, ${lastLocation.longitude}")
-                    updateWeatherForLocation(lastLocation)
+                    // Fetch and store weather data for current location
+                    fetchWeatherForCurrentLocation(lastLocation)
                 } else {
                     Log.d("WeatherViewModel", "No initial location available, waiting for location updates")
                     _error.value = "Waiting for location..."
-                    _isLoading.value = false
                 }
                 // Start listening for location updates
                 startLocationUpdates()
@@ -65,12 +67,41 @@ class WeatherViewModel @Inject constructor(
         }
     }
 
+    private suspend fun fetchWeatherForCurrentLocation(location: Location) {
+        try {
+            _isLoading.value = true
+            val lat = location.latitude
+            val lon = location.longitude
+            
+            // First get the location name from coordinates
+            val locationName = repository.getLocationNameFromCoordinates(lat, lon)
+            Log.d("WeatherViewModel", "Got location name: $locationName for coordinates: $lat, $lon")
+            
+            // Clear any previous current location data before fetching new data
+            repository.clearCurrentLocationWeather()
+            
+            // Use the location name to fetch weather data
+            Log.d("WeatherViewModel", "Fetching weather for current location: $locationName")
+            val weather = repository.fetchWeatherData(locationName, isCurrentLocation = true)
+            Log.d("WeatherViewModel", "Successfully fetched weather for current location: ${weather.location.name}")
+            
+            // Weather update will come through Room observation
+            lastLocationUpdate = System.currentTimeMillis()
+            _error.value = null
+        } catch (e: Exception) {
+            Log.e("WeatherViewModel", "Error fetching current location weather", e)
+            _error.value = e.message
+        } finally {
+            _isLoading.value = false
+        }
+    }
+
     private fun observeCurrentLocationWeather() {
         Log.d("WeatherViewModel", "Starting to observe current location weather")
         viewModelScope.launch {
             repository.getCurrentLocationWeather()
                 .onStart { 
-                    Log.d("WeatherViewModel", "Starting to collect weather updates") 
+                    Log.d("WeatherViewModel", "Starting to collect weather updates from database") 
                 }
                 .catch { e ->
                     Log.e("WeatherViewModel", "Error observing current location weather", e)
@@ -78,12 +109,11 @@ class WeatherViewModel @Inject constructor(
                     _isLoading.value = false
                 }
                 .collect { weather ->
-                    Log.d("WeatherViewModel", "Received weather update: ${weather?.location?.name}, isCurrent: ${weather != null}")
-                    if (weather == null) {
-                        Log.d("WeatherViewModel", "No current location weather found in database")
-                    } else {
-                        _currentWeather.value = weather
+                    Log.d("WeatherViewModel", "Received weather update from database: ${weather?.location?.name}")
+                    _currentWeather.value = weather
+                    if (weather != null) {
                         _isLoading.value = false
+                        _error.value = null
                     }
                 }
         }
@@ -95,12 +125,11 @@ class WeatherViewModel @Inject constructor(
                 .catch { e ->
                     Log.e("WeatherViewModel", "Error getting location updates", e)
                     _error.value = e.message
-                    _isLoading.value = false
                 }
                 .collect { location ->
                     Log.d("WeatherViewModel", "Location update received: ${location.latitude}, ${location.longitude}")
                     if (shouldUpdateWeather()) {
-                        updateWeatherForLocation(location)
+                        fetchWeatherForCurrentLocation(location)
                     } else {
                         Log.d("WeatherViewModel", "Skipping weather update - too soon since last update")
                     }
@@ -111,23 +140,6 @@ class WeatherViewModel @Inject constructor(
     private fun shouldUpdateWeather(): Boolean {
         val currentTime = System.currentTimeMillis()
         return currentTime - lastLocationUpdate >= MIN_UPDATE_INTERVAL
-    }
-
-    private suspend fun updateWeatherForLocation(location: Location) {
-        try {
-            _isLoading.value = true
-            val query = "${location.latitude},${location.longitude}"
-            Log.d("WeatherViewModel", "Fetching weather for location: $query")
-            val weather = repository.fetchWeatherData(query, isCurrentLocation = true)
-            Log.d("WeatherViewModel", "Weather fetched successfully for: ${weather.location.name}")
-            lastLocationUpdate = System.currentTimeMillis()
-            _error.value = null
-        } catch (e: Exception) {
-            Log.e("WeatherViewModel", "Error updating weather for location", e)
-            _error.value = e.message
-        } finally {
-            _isLoading.value = false
-        }
     }
 
     fun searchLocations(query: String) {
